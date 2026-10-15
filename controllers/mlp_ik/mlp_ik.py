@@ -6,6 +6,7 @@ joint ranges for that robot.
 """
 
 import argparse
+import csv
 import json
 import math
 import sys
@@ -19,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.forward_kinematics_ned import forward_kinematics_ned
 from scripts.forward_kinematics_scara import forward_kinematics_scara
-from scripts.train_mlp import INPUTS, JOINT_LIMITS, MLP, MODELS, OUTPUTS, denormalise
+from scripts.train_mlp import INPUTS, JOINT_LIMITS, MLP, MODELS, OUTPUTS, SPLITS, denormalise
 
 
 DEFAULT_MODEL = "mlp_ned_scara_large_h64x64_cosine"
@@ -69,6 +70,16 @@ class SharedMLPIK:
             self.model.params = {key: stored[key] for key in self.model.params}
             self.mean = stored["mean"]
             self.std = stored["std"]
+
+        support_path = SPLITS / robot_name / f"train_{config['size']}.csv"
+        with support_path.open(newline="", encoding="utf-8") as source:
+            support = list(csv.DictReader(source))
+        self.support_xyz = np.array(
+            [[float(row[key]) for key in ("x", "y", "z")] for row in support]
+        )
+        self.support_q = np.array(
+            [[float(row[key]) for key in OUTPUTS] for row in support]
+        )
         self.robot_name = robot_name
         self.description = f"{model_name} ({'x'.join(map(str, hidden))} hidden, {config['size']} set)"
 
@@ -77,7 +88,19 @@ class SharedMLPIK:
 
         flags = ROBOTS[self.robot_name]["flags"]
         x = (np.array([[*flags, *target]]) - self.mean) / self.std
-        q_norm = np.clip(self.model.predict(x)[0], -1.0, 1.0)
+        raw_q_norm = self.model.predict(x)[0]
+        q_norm = np.clip(raw_q_norm, -1.0, 1.0)
+        self.last_raw_q_norm = raw_q_norm.copy()
+        self.last_was_clipped = not np.array_equal(raw_q_norm, q_norm)
+
+        # This is a support diagnostic only; the MLP itself does not use nearest neighbours.
+        distances = np.linalg.norm(self.support_xyz - np.asarray(target), axis=1)
+        nearest = int(np.argmin(distances))
+        self.nearest_training_example = {
+            "distance_m": float(distances[nearest]),
+            "xyz": self.support_xyz[nearest],
+            "q_norm": self.support_q[nearest],
+        }
         return tuple(
             float(q) for q in denormalise(q_norm, JOINT_LIMITS[self.robot_name])
         )
@@ -168,7 +191,14 @@ def main():
             predicted_tcp = config["forward_kinematics"](joints)
             print("\n--------------------------------")
             print(f"Target (ARM frame):   x={target[0]: .4f}  y={target[1]: .4f}  z={target[2]: .4f}")
-            print("MLP joints:           " + "  ".join(f"q{i + 1}={q: .4f}" for i, q in enumerate(joints)))
+            print("MLP raw q [-1,1]:     " + "  ".join(f"q{i + 1}={q: .4f}" for i, q in enumerate(ik.last_raw_q_norm)))
+            print(f"Joint limits clipped: {ik.last_was_clipped}")
+            print("Command joints:       " + "  ".join(f"q{i + 1}={q: .4f}" for i, q in enumerate(joints)))
+            nearest = ik.nearest_training_example
+            print(f"Nearest train sample: {nearest['distance_m'] * 1000:.1f} mm away, "
+                  f"xyz={np.round(nearest['xyz'], 4).tolist()}, "
+                  f"q_norm={np.round(nearest['q_norm'], 3).tolist()}")
+            print(f"FK predicted TCP:     x={predicted_tcp[0]: .4f}  y={predicted_tcp[1]: .4f}  z={predicted_tcp[2]: .4f}")
             print(f"FK error of MLP pose: {math.dist(predicted_tcp, target) * 1000:.1f} mm")
             if tcp_node is not None:
                 tcp = position_in_arm_frame(tcp_node, arm_node)

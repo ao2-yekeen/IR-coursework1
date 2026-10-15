@@ -66,6 +66,10 @@ Both worlds include a reachable target sphere. The controller loads
 While the simulation is running, use the arrow keys to move the red target
 sphere in X/Y and Page Up/Page Down to change Z. Hold Shift for smaller
 adjustments. Network accuracy is not guaranteed outside its trained workspace.
+The controller log shows its raw normalised joint prediction, whether that
+prediction was clipped to joint limits, the resulting FK TCP position, and the
+nearest training sample. The nearest sample is a support clue; the MLP does not
+copy that sample to make its prediction.
 
 Dataset generation is separate: the master runner starts Webots headlessly and
 temporarily selects `controllers/generate_dataset/generate_dataset.py`. That
