@@ -239,6 +239,22 @@ python scripts/generate_mlp_diagnostics.py --model mlp_ned_scara_large_h64x64_co
 Diagnostics read the training directory from this checkpoint's configuration,
 so nearby examples include its synthetic unreachable requests.
 
+The [medium experiment](reports/directional_fallback_medium/README.md) uses
+4,000 reachable + 2,000 unreachable training rows and 1,000 + 500 validation
+rows per arm. Both sizes use **66.7% reachable / 33.3% unreachable** rows for
+training and validation. Test rows are **50% / 50%** (1,000 of each per arm).
+The [size comparison](reports/directional_fallback_medium/size_comparison.md)
+uses identical requested test points for medium and large. Medium labels come
+only from its own 4,000-pose training bank; no large-bank joint labels are copied.
+
+```bash
+python scripts/run_fallback_training.py --size medium --name directional_fallback_medium_repeat --test-requests data/nn/directional_fallback
+```
+
+Add `--webots PATH` for the simulator comparison. The saved medium model is
+`mlp_ned_scara_medium_h64x64_cosine_directional_fallback_medium`; select it with
+`--model` in the same `mlp_ik` controller.
+
 ### Coursework evaluation: Tasks 4.A and 4.B
 
 Run from the repository root after installing dependencies:
