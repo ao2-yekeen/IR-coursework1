@@ -255,6 +255,24 @@ Add `--webots PATH` for the simulator comparison. The saved medium model is
 `mlp_ned_scara_medium_h64x64_cosine_directional_fallback_medium`; select it with
 `--model` in the same `mlp_ik` controller.
 
+The separate [20,000-reachable dataset](data/nn/directional_fallback_20000/README.md)
+uses **20,000 reachable + 6,667 unreachable training rows per robot**, approximately
+**3:1**. Validation has 5,000 + 1,667 rows; testing keeps 1,000 + 1,000 rows for
+comparison. The reachable pose bank was extended in headless Webots from copies
+of the original audits; earlier datasets and models are retained. Preparation and
+reproduction commands are in [the reachable data notes](data/nn/reachable_20000/README.md).
+This dataset has not been used to train a model, so its accuracy is not yet known.
+
+```bash
+python scripts/run_fallback_training.py --size large --name directional_fallback_20000_repeat --reachable-splits data/nn/reachable_20000 --reachable-audits data/raw/reachable_20000 --train-extra 6667 --test-requests data/nn/directional_fallback --dataset-only
+```
+
+The `large` split filename is retained for compatibility with the existing trainer;
+the manifest records the actual counts. `--dataset-only` creates data and its
+audit without training. Validation unreachable counts are one quarter of training,
+rounded to the nearest integer. An exact 3:1 ratio is impossible with 20,000
+reachable rows, so the unreachable training count is rounded to 6,667.
+
 ### Coursework evaluation: Tasks 4.A and 4.B
 
 Run from the repository root after installing dependencies:
