@@ -22,6 +22,7 @@ IR-coursework1/
 │   ├── forward_kinematics_ned.py       # Task 1.B Ned FK
 │   ├── forward_kinematics_scara.py     # Task 1.B SCARA FK
 │   ├── train_mlp.py                    # Shared MLP trainer: joint loss or TCP loss
+│   ├── run_fallback_training.py        # Separate directional fallback dataset/model experiment
 │   ├── tcp_loss.py                     # Batched FK and analytical TCP-loss gradients
 │   ├── compare_mlp_losses.py           # Task 4.A: full independent-test evaluation
 │   ├── evaluate_mlp_webots.py          # Task 4.B: first 100 test points in Webots
@@ -34,6 +35,7 @@ IR-coursework1/
 └── data/
     ├── raw/                             # Full audit rows, accepted and rejected
     ├── nn/                              # Normalised master data and splits
+    │   └── directional_fallback/        # Reachable data + labelled unreachable requests
     ├── evaluation/                      # Task 1.C measurements and summary
     ├── visualise_dataset.py             # Shared Ned/SCARA audit visualiser
     └── visualisation/common.py          # CSV parsing and arm drawing helpers
@@ -182,6 +184,60 @@ joint-loss checkpoint (the controller's default model) as a reference.
 
 It writes the current Task 4.A results to `outputs/task4a/`. The older comparison
 in `reports/tcp_loss_comparison/` remains a saved experiment snapshot.
+
+### Teaching a directional response to unreachable requests
+
+The separate [directional fallback experiment](reports/directional_fallback/README.md)
+adds unreachable requests labelled with accepted joint configurations. The rule
+is **point toward the request, then approach it**: match the best available
+recorded direction, allow a 2° angular tolerance, then select the closest accepted
+TCP in that direction. Ned uses the 3D direction from its shoulder; SCARA uses
+horizontal bearing because its links cannot tilt upward. A target exactly on
+SCARA's yaw axis has no horizontal bearing, so distance decides the label.
+
+The new requests are certified outside the FK workspace using conservative
+geometric bounds. Every label comes from the original **training** pose bank and
+links to its earlier Webots audit row. These are virtual requests paired with
+recorded poses; there is no physical reading at an unreachable requested point.
+The rule approximates the best recorded direction and position. The MLP learns
+that rule using joint MSE, so exact alignment and collision-free motion are not
+guaranteed. The report compares TCP endpoint RMSE to the requested point, error
+to the chosen fallback endpoint and the effect on reachable accuracy.
+
+Each arm retains its 12,000/3,000/1,000 reachable train/validation/test rows and
+adds 6,000/1,500/1,000 unreachable rows. New queries have independent seeds for
+each split; validation/test poses never supply training labels. The original
+datasets and model checkpoints retain their contents, checked by saved SHA-256
+hashes. Files for this experiment are:
+
+| File/folder | Purpose |
+|---|---|
+| `data/nn/directional_fallback/` | New train/validation/test CSVs; `kind` and `desired_x/desired_y/desired_z` are audit/metric columns, not extra network inputs |
+| `data/raw/directional_fallback/` | Requested point, chosen pose, direction error, reachability bound and source Webots audit row |
+| `models/mlp_ned_scara_large_h64x64_cosine_directional_fallback.*` | Separate joint-loss checkpoint, config and history |
+| `reports/directional_fallback/` | Held-out comparisons, graphs, simulator measurements and source hashes |
+
+The master script generates data, calls the existing MLP trainer and evaluates
+the saved checkpoint. Reproduce it under a fresh name to protect saved results:
+
+```bash
+python scripts/run_fallback_training.py --name directional_fallback_repeat
+```
+
+Add `--webots PATH` to measure representative held-out requests in headless
+Webots as well. For live control, keep controller `mlp_ik` and add
+`"--model=mlp_ned_scara_large_h64x64_cosine_directional_fallback"` after the
+robot-name argument in the world's `controllerArgs`.
+
+The saved [per-target Webots diagnostics](outputs/mlp_diagnostics_directional_fallback/README.md)
+sit beside the earlier MLP outputs. To run them again:
+
+```bash
+python scripts/generate_mlp_diagnostics.py --model mlp_ned_scara_large_h64x64_cosine_directional_fallback --output outputs/mlp_diagnostics_directional_fallback
+```
+
+Diagnostics read the training directory from this checkpoint's configuration,
+so nearby examples include its synthetic unreachable requests.
 
 ### Coursework evaluation: Tasks 4.A and 4.B
 
