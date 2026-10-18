@@ -255,23 +255,44 @@ Add `--webots PATH` for the simulator comparison. The saved medium model is
 `mlp_ned_scara_medium_h64x64_cosine_directional_fallback_medium`; select it with
 `--model` in the same `mlp_ik` controller.
 
-The separate [20,000-reachable dataset](data/nn/directional_fallback_20000/README.md)
-uses **20,000 reachable + 6,667 unreachable training rows per robot**, approximately
-**3:1**. Validation has 5,000 + 1,667 rows; testing keeps 1,000 + 1,000 rows for
-comparison. The reachable pose bank was extended in headless Webots from copies
-of the original audits; earlier datasets and models are retained. Preparation and
-reproduction commands are in [the reachable data notes](data/nn/reachable_20000/README.md).
-This dataset has not been used to train a model, so its accuracy is not yet known.
+The [20,000-total dataset](data/nn/directional_fallback_total_20000/README.md)
+contains **15,000 reachable + 5,000 unreachable training rows per robot (3:1)**.
+Validation has 3,750 + 1,250 rows. The 1,000 reachable + 1,000 unreachable test
+requests match previous experiments. Reachable rows come from the larger Webots
+bank, with separate train/validation/test memberships; fallback labels use only
+this experiment's 15,000-pose training bank. The earlier
+[20,000-reachable preparation](data/nn/directional_fallback_20000/README.md)
+remains a separate dataset containing 26,667 total training rows per arm.
+
+Both new models use the same architecture, seed and optimiser. Joint loss learns
+normalised joint labels. TCP loss uses the robot's FK to compare its predicted
+TCP with `desired_x,desired_y,desired_z` when those columns exist; otherwise it
+uses requested XYZ. Requested XYZ always remains the model input. This allows
+the unreachable examples to teach the same chosen fallback endpoints under both
+losses. Test errors to requested points are reported separately from fallback
+imitation error.
 
 ```bash
-python scripts/run_fallback_training.py --size large --name directional_fallback_20000_repeat --reachable-splits data/nn/reachable_20000 --reachable-audits data/raw/reachable_20000 --train-extra 6667 --test-requests data/nn/directional_fallback --dataset-only
+python scripts/train_mlp.py --size large --hidden 64 64 --loss joints --epochs 3000 --seed 2026 --splits-dir data/nn/directional_fallback_total_20000 --model-name mlp_ned_scara_total20000_3to1_joints
+python scripts/train_mlp.py --size large --hidden 64 64 --loss tcp --epochs 3000 --seed 2026 --splits-dir data/nn/directional_fallback_total_20000 --model-name mlp_ned_scara_total20000_3to1_tcp
 ```
 
-The `large` split filename is retained for compatibility with the existing trainer;
-the manifest records the actual counts. `--dataset-only` creates data and its
-audit without training. Validation unreachable counts are one quarter of training,
-rounded to the nearest integer. An exact 3:1 ratio is impossible with 20,000
-reachable rows, so the unreachable training count is rounded to 6,667.
+Checkpoint names are protected against replacement; choose a new `--model-name`
+when repeating training. For either arm in Webots, keep `mlp_ik` and append
+`"--model=mlp_ned_scara_total20000_3to1_joints"` or
+`"--model=mlp_ned_scara_total20000_3to1_tcp"` after the robot-name argument.
+
+[Saved-checkpoint comparison and graphs](reports/directional_fallback_total_20000/README.md):
+
+```bash
+python scripts/run_fallback_training.py --name directional_fallback_total_20000 --evaluate-models mlp_ned_scara_large_h64x64_cosine mlp_ned_scara_large_h64x64_cosine_tcp mlp_ned_scara_large_h64x64_cosine_directional_fallback mlp_ned_scara_total20000_3to1_joints mlp_ned_scara_total20000_3to1_tcp
+```
+
+Add `--webots PATH` for measured endpoint errors. All saved models receive the
+same test inputs. Comparisons with earlier models change data size and ratio
+together; they do not isolate the effect of choosing 3:1 instead of 2:1.
+The `large` filenames retain compatibility with the existing trainer; manifests
+record actual counts. `--dataset-only` creates a dataset without training.
 
 ### Coursework evaluation: Tasks 4.A and 4.B
 
